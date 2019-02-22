@@ -1,3 +1,4 @@
+#!coding=utf-8
 """An extensible library for opening URLs using a variety of protocols
 
 The simplest way to use this module is to call the urlopen function,
@@ -348,6 +349,7 @@ class OpenerDirector:
         self.process_request = {}
 
     def add_handler(self, handler):
+        # 暂时未理解，为何不希望handler中有"add_parent"属性
         if not hasattr(handler, "add_parent"):
             raise TypeError("expected BaseHandler instance, got %r" %
                             type(handler))
@@ -357,18 +359,20 @@ class OpenerDirector:
             if meth in ["redirect_request", "do_open", "proxy_open"]:
                 # oops, coincidental match
                 continue
-
+            # 将handler类内的方法名以"_"为间隔分开，获得protool与condition
             i = meth.find("_")
             protocol = meth[:i]
             condition = meth[i+1:]
 
             if condition.startswith("error"):
+                # 获得error后面的http状态返回码，比如ProxyBasicAuthHandler的http_error_407
                 j = condition.find("_") + i + 1
                 kind = meth[j+1:]
                 try:
                     kind = int(kind)
                 except ValueError:
                     pass
+                # 查找一下handle_error的字典中是否有以协议名为键的对应，如果没有就将protocol的值设置为{}
                 lookup = self.handle_error.get(protocol, {})
                 self.handle_error[protocol] = lookup
             elif condition == "open":
@@ -486,18 +490,29 @@ def build_opener(*handlers):
 
     If any of the handlers passed as arguments are subclasses of the
     default handlers, the default handlers will not be used.
+
+    从handlers的列表中创建opener
+    opener将使用很多默认的handlers，包括HTTP、FTP、HTTPS
+    如果传入的handlers是默认handlers的字类，那么默认handlers就不会被使用
     """
     import types
     def isclass(obj):
+        # 判断一个对象是不是一个类
+        # 当isinstance的第二个参数是一个元祖的时候，比如下面的情况，那么其实这个语句等于
+        # isinstance(obj,type.ClassType) or isinstance(obj,type)
         return isinstance(obj, (types.ClassType, type))
-
+    # 实例化OpenerDirector类，里面包含一些诸如addheaders(默认添加的头部),和存放handlers的数组与字典
     opener = OpenerDirector()
+    # 默认会添加的handler
     default_classes = [ProxyHandler, UnknownHandler, HTTPHandler,
                        HTTPDefaultErrorHandler, HTTPRedirectHandler,
                        FTPHandler, FileHandler, HTTPErrorProcessor]
+    # 如果httplib库中是否有HTTPS这个属性
     if hasattr(httplib, 'HTTPS'):
         default_classes.append(HTTPSHandler)
+    # 创建一个集合对象存放将被删除的Handler
     skip = set()
+    # 将传入的hanlers遍历，如果发现是默认Handler的子类或者其子类的实例，就将默认Handler删除
     for klass in default_classes:
         for check in handlers:
             if isclass(check):
@@ -505,9 +520,10 @@ def build_opener(*handlers):
                     skip.add(klass)
             elif isinstance(check, klass):
                 skip.add(klass)
+    # 将在skip中的Handler从default_classes中删除掉
     for klass in skip:
         default_classes.remove(klass)
-
+    # 将剩下的默认类都加进行注册
     for klass in default_classes:
         opener.add_handler(klass())
 
@@ -737,10 +753,12 @@ def _parse_proxy(proxy):
 class ProxyHandler(BaseHandler):
     # Proxies must be in front
     handler_order = 100
-
+    # 实例化这个方法后会为这个实例增加名字为 %s_open的函数
+    # 比如http代理的话，就会增加http_open函数
     def __init__(self, proxies=None):
         if proxies is None:
             proxies = getproxies()
+        # 如果proxies的数据结构不是dict类型就会报错
         assert hasattr(proxies, 'has_key'), "proxies must be a mapping"
         self.proxies = proxies
         for type, url in proxies.items():
