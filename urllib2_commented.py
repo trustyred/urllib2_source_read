@@ -127,12 +127,14 @@ from urllib import localhost, url2pathname, getproxies, proxy_bypass
 
 # used in User-Agent header sent
 __version__ = sys.version[:3]
-
+# 全局的_opener
 _opener = None
 def urlopen(url, data=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
             cafile=None, capath=None, cadefault=False, context=None):
+    # 将全局的_opener拉到当前作用域
     global _opener
     if cafile or capath or cadefault:
+    # 一般cafile,capath,cadefault都是默认，所以里面的逻辑很少执行
         if context is not None:
             raise ValueError(
                 "You can't pass both context and any of cafile, capath, and "
@@ -146,15 +148,23 @@ def urlopen(url, data=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
         https_handler = HTTPSHandler(context=context, check_hostname=True)
         opener = build_opener(https_handler)
     elif context:
+    # 一般context都是默认，所以里面的逻辑很少执行    
         https_handler = HTTPSHandler(context=context)
         opener = build_opener(https_handler)
     elif _opener is None:
+    # 如果没有自己添加新的Handler,也就不需要手动构建Opener，那么就会执行当前逻辑
+    # 将各种默认handler加入到opner中
         _opener = opener = build_opener()
     else:
+    # 之前自己已经生成了opener，那么就采用这个
         opener = _opener
+    # 前面那么多，这里才是干活的函数，调用opner的openx
     return opener.open(url, data, timeout)
 
 def install_opener(opener):
+    """
+        相当于将传入的opner，变成新的全局opner
+    """
     global _opener
     _opener = opener
 
@@ -227,7 +237,11 @@ class Request:
     def __init__(self, url, data=None, headers={},
                  origin_req_host=None, unverifiable=False):
         # unwrap('<URL:type://host/path>') --> 'type://host/path'
+        # unwrap用于脱掉url两边的尖括号,还有空额
         self.__original = unwrap(url)
+        # 提取url后的标签，形如requests的官方文档"http://docs.python-requests.org/en/master/community/updates/#id4"
+        # 后面的这个id4一般用于在一个页面中去定位，比如一个标题会与一tag绑定，这样就能快速到一个页面中的某个标题处
+        # self.__fragment就是
         self.__original, self.__fragment = splittag(self.__original)
         self.type = None
         # self.__r_type is what's left after doing the splittype
@@ -236,10 +250,13 @@ class Request:
         self._tunnel_host = None
         self.data = data
         self.headers = {}
+        # 将传入的头部添加好
         for key, value in headers.items():
             self.add_header(key, value)
+        # 暂时不理解
         self.unredirected_hdrs = {}
         if origin_req_host is None:
+            # 获得url中的域名比如http://www.google.com -> www.google.com
             origin_req_host = request_host(self)
         self.origin_req_host = origin_req_host
         self.unverifiable = unverifiable
@@ -349,7 +366,7 @@ class OpenerDirector:
         self.process_request = {}
 
     def add_handler(self, handler):
-        # 暂时未理解，为何不希望handler中有"add_parent"属性
+        # 没有add_handler属性就代表handler不是继承自BaseHandler,urllib2中不允许这样的handler被使用
         if not hasattr(handler, "add_parent"):
             raise TypeError("expected BaseHandler instance, got %r" %
                             type(handler))
@@ -386,16 +403,20 @@ class OpenerDirector:
                 lookup = self.process_request
             else:
                 continue
-
+            # 查找针对这一kind的处理handler，如果没有就赋值为[]，这里的handlers其实是self.handle_open,self.process_response,
+            # self.process_request的代理
             handlers = lookup.setdefault(kind, [])
             if handlers:
+                # 将handler按顺序插入到handlers中
                 bisect.insort(handlers, handler)
             else:
                 handlers.append(handler)
             added = True
 
         if added:
+            # 将添加的handler加入self.handlers中
             bisect.insort(self.handlers, handler)
+            # 将当前类的实例传入handler的对象中，并将handler中的self.parent属性设置为当前类OpenerDirector的实例
             handler.add_parent(self)
 
     def close(self):
@@ -406,6 +427,7 @@ class OpenerDirector:
         # Handlers raise an exception if no one else should try to handle
         # the request, or return None if they can't but another handler
         # could.  Otherwise, they return the response.
+        
         handlers = chain.get(kind, ())
         for handler in handlers:
             func = getattr(handler, meth_name)
@@ -417,19 +439,26 @@ class OpenerDirector:
     def open(self, fullurl, data=None, timeout=socket._GLOBAL_DEFAULT_TIMEOUT):
         # accept a URL or a Request object
         if isinstance(fullurl, basestring):
+        # 如果fullurl是basestring的子类，那么就构建一个Request类
             req = Request(fullurl, data)
         else:
+        # 否则就认为你的fullurl是一个Request的实例
             req = fullurl
             if data is not None:
                 req.add_data(data)
 
         req.timeout = timeout
+        # 从Request对象中获得请求的协议，比如http https等
         protocol = req.get_type()
 
         # pre-process request
+        # meth_name的名字就是handler中的请求处理函数的名字
         meth_name = protocol+"_request"
+        # 获得对应协议的请求处理handler列表
         for processor in self.process_request.get(protocol, []):
+            # 获得一个handler，找到他的*_request方法
             meth = getattr(processor, meth_name)
+            # 调用这个方法
             req = meth(req)
 
         response = self._open(req, data)
@@ -443,17 +472,18 @@ class OpenerDirector:
         return response
 
     def _open(self, req, data=None):
+        # 生成默认调用链
         result = self._call_chain(self.handle_open, 'default',
                                   'default_open', req)
         if result:
             return result
-
+        # 生成open类调用链
         protocol = req.get_type()
         result = self._call_chain(self.handle_open, protocol, protocol +
                                   '_open', req)
         if result:
             return result
-
+        # 否则生成unknown调用链
         return self._call_chain(self.handle_open, 'unknown',
                                 'unknown_open', req)
 
@@ -1155,10 +1185,11 @@ class AbstractHTTPHandler(BaseHandler):
         self._debuglevel = level
 
     def do_request_(self, request):
+        # 从Request的实例获得主机名
         host = request.get_host()
         if not host:
             raise URLError('no host given')
-
+        # urllib2的逻辑是，传入data才认为是POST请求，否则一律认为是GET请求
         if request.has_data():  # POST
             data = request.get_data()
             if not request.has_header('Content-type'):
@@ -1168,15 +1199,18 @@ class AbstractHTTPHandler(BaseHandler):
             if not request.has_header('Content-length'):
                 request.add_unredirected_header(
                     'Content-length', '%d' % len(data))
-
+        # 主机名
         sel_host = host
+        # 是否设置了代理
         if request.has_proxy():
             scheme, sel = splittype(request.get_selector())
             sel_host, sel_path = splithost(sel)
-
+        # 查看是否有Host这个头部
         if not request.has_header('Host'):
             request.add_unredirected_header('Host', sel_host)
+        # self.parent就是OpenerDirector类，里面有addheaders属性
         for name, value in self.parent.addheaders:
+            # 将首字母大写
             name = name.capitalize()
             if not request.has_header(name):
                 request.add_unredirected_header(name, value)
@@ -1198,9 +1232,10 @@ class AbstractHTTPHandler(BaseHandler):
             raise URLError('no host given')
 
         # will parse host:port
+        # 一般来说http_class就是HTTPConnection对象
         h = http_class(host, timeout=req.timeout, **http_conn_args)
         h.set_debuglevel(self._debuglevel)
-
+        # 获得当前的头部
         headers = dict(req.unredirected_hdrs)
         headers.update(dict((k, v) for k, v in req.headers.items()
                             if k not in headers))
@@ -1211,7 +1246,9 @@ class AbstractHTTPHandler(BaseHandler):
         # which will block while the server waits for the next request.
         # So make sure the connection gets closed after the (only)
         # request.
+        # 设置为短连接
         headers["Connection"] = "close"
+        # 将首字母变为大写
         headers = dict(
             (name.title(), val) for name, val in headers.items())
 
@@ -1226,6 +1263,8 @@ class AbstractHTTPHandler(BaseHandler):
             h.set_tunnel(req._tunnel_host, headers=tunnel_headers)
 
         try:
+            # 这里一般为httplib的HTPPConnection对象的request方法
+            # 四个参数分别是HTTPConnection.request
             h.request(req.get_method(), req.get_selector(), req.data, headers)
         except socket.error, err: # XXX what error?
             h.close()
@@ -1257,10 +1296,13 @@ class AbstractHTTPHandler(BaseHandler):
 
 
 class HTTPHandler(AbstractHTTPHandler):
-
+    
     def http_open(self, req):
+        # 在调用的时候会向handler内传入httplib.HTTPConnection这个类
         return self.do_open(httplib.HTTPConnection, req)
-
+    # 在这里定义的http_request属性的函数转化为HTTPHandler父类的do_request_函数,在debug中会很迷惑
+    # 明明getattr(obj,"http_request")是这样，但是却跳转到了do_request_函数,还以为是old-style class的一些
+    # 奇怪表现
     http_request = AbstractHTTPHandler.do_request_
 
 if hasattr(httplib, 'HTTPS'):
