@@ -393,7 +393,7 @@ class OpenerDirector:
                 lookup = self.handle_error.get(protocol, {})
                 self.handle_error[protocol] = lookup
             elif condition == "open":
-                kind = protocol
+                kind = protocol 
                 lookup = self.handle_open
             elif condition == "response":
                 kind = protocol
@@ -407,7 +407,7 @@ class OpenerDirector:
             # self.process_request的代理
             handlers = lookup.setdefault(kind, [])
             if handlers:
-                # 将handler按顺序插入到handlers中
+                # 将handler按顺序插入到handlers中，这里不是很理解为什么要用bisect.insort去插入
                 bisect.insort(handlers, handler)
             else:
                 handlers.append(handler)
@@ -460,11 +460,13 @@ class OpenerDirector:
             meth = getattr(processor, meth_name)
             # 调用这个方法
             req = meth(req)
-
+        # 获得响应对象，是一个file_like对象
         response = self._open(req, data)
 
         # post-process response
+        # 生成响应处理函数
         meth_name = protocol+"_response"
+        #这里response会一直被最新的“*_response”函数的返回值进行覆盖
         for processor in self.process_response.get(protocol, []):
             meth = getattr(processor, meth_name)
             response = meth(req, response)
@@ -488,6 +490,7 @@ class OpenerDirector:
                                 'unknown_open', req)
 
     def error(self, proto, *args):
+        # 当http的返回码不在[200,300)范围内，就会执行到这个错误函数
         if proto in ('http', 'https'):
             # XXX http[s] protocols are special-cased
             dict = self.handle_error['http'] # https is not different than http
@@ -1264,13 +1267,15 @@ class AbstractHTTPHandler(BaseHandler):
 
         try:
             # 这里一般为httplib的HTPPConnection对象的request方法
-            # 四个参数分别是HTTPConnection.request
+            # 四个参数分别是HTTPConnection.request的四个参数分别是method,url,body,header
             h.request(req.get_method(), req.get_selector(), req.data, headers)
         except socket.error, err: # XXX what error?
+            # 如果出现问题就关闭连接，并抛出异常
             h.close()
             raise URLError(err)
         else:
             try:
+                # 获得响应
                 r = h.getresponse(buffering=True)
             except TypeError: # buffering kw not supported
                 r = h.getresponse()
@@ -1288,7 +1293,7 @@ class AbstractHTTPHandler(BaseHandler):
 
         r.recv = r.read
         fp = socket._fileobject(r, close=True)
-
+        # 这里使用addinfourl是为了根据响应的数据构建一个file_like对象
         resp = addinfourl(fp, r.msg, req.get_full_url())
         resp.code = r.status
         resp.msg = r.reason
