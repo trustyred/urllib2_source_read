@@ -1,7 +1,15 @@
 # urllib2源代码阅读
 ## 阅读一个库的源码，首先你要了解这个库的使用方式，这是大前提，之后写一段使用这个库的代码，然后用Pycharm开始一步步调试
 ## urllib2这个库的代码还比较好理解，再阅读的时候注意几个概念，比如handlers,handler,OpenerDirector,Request等概念还有像handler_open,handler_error,process_response,process_request等数据结构
-
+# 关于urllib2的问题
+- 当添加的data大于2147483647长度的时候会报错的问题,目前的解决方法如下,但具体原因在源码中并没有发现,估计还要再深入到httplib的源码中才能找到问题的答案
+```
+import mmap
+import urllib2
+f = open('./test')
+mmapped_file_as_string = mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ)
+urllib2.urlopen('url',data=mmapped_file_as_string)
+```
 # 从基础流程入手
 ## example
 ```python
